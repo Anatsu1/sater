@@ -1,43 +1,95 @@
-﻿Imports System.Data.OleDb
-Imports System.Data
+﻿Imports System.Data
+
 Public Class opcionespanel
-    Dim conexion As New OleDbConnection
-    Dim comandos As New OleDbCommand
-    Dim adaptador As New OleDbDataAdapter
-    Dim registros As New DataSet
-    Dim codigo As Integer
+
+    ' vbnc (Mono) no implementa las instancias por defecto de formularios que
+    ' ofrece Visual Basic ("otroForm.Show()" sin instanciar). Esta propiedad hace
+    ' explicito lo mismo: una unica instancia viva por pantalla, recreada si fue
+    ' cerrada. Compila igual en Visual Studio y deja la dependencia a la vista.
+    Private Shared instancia As opcionespanel
+
+    Public Shared ReadOnly Property Actual() As opcionespanel
+        Get
+            If instancia Is Nothing OrElse instancia.IsDisposed Then
+                instancia = New opcionespanel()
+            End If
+            Return instancia
+        End Get
+    End Property
+
+
+    Private Sub opcionespanel_Load_1(sender As Object, e As EventArgs) Handles MyBase.Load
+        inicio.Actual.RegistrarApertura()
+
+        ' La grilla es un selector de catalogo, no un editor: sin esto el usuario
+        ' puede escribir sobre las celdas y perder lo tipeado sin ningun aviso,
+        ' porque esos cambios se quedan en el DataTable y nunca llegan a la base.
+        vistapanel.ReadOnly = True
+        vistapanel.AllowUserToAddRows = False
+        actualizardatagrid()
+    End Sub
+
     Private Sub actualizardatagrid()
-        Dim adaptador As New OleDbDataAdapter
-        Dim registro As New DataSet
-        Dim consulta As String
-        consulta = "SELECT * FROM paneles"
-        adaptador = New OleDbDataAdapter(consulta, conexion)
-        registro.Tables.Add("paneles")
-        adaptador.Fill(registro.Tables("paneles"))
-        vistapanel.DataSource = registro.Tables("paneles")
+        Try
+            vistapanel.DataSource = BaseDatos.Consultar("SELECT * FROM paneles")
+        Catch ex As Exception
+            BaseDatos.Reportar(ex, "sin conexion")
+        End Try
     End Sub
 
     Private Sub vistapanel_CellClick(sender As Object, e As DataGridViewCellEventArgs) Handles vistapanel.CellClick
-        Dim i As Integer
-        i = vistapanel.CurrentRow.Index
-        idPanel.Text = vistapanel.Item(0, i).Value()
-        txtTipo.Text = vistapanel.Item(1, i).Value()
-        txtWatts.Text = vistapanel.Item(2, i).Value()
-        txtEficiencia.Text = vistapanel.Item(3, i).Value()
-        txtMarca.Text = vistapanel.Item(4, i).Value()
-        txtModelo.Text = vistapanel.Item(5, i).Value()
-        txtDimensiones.Text = vistapanel.Item(6, i).Value()
+        If vistapanel.CurrentRow Is Nothing Then Exit Sub
+        Dim i As Integer = vistapanel.CurrentRow.Index
+        idPanel.Text = CStr(vistapanel.Item(0, i).Value)
+        txtTipo.Text = CStr(vistapanel.Item(1, i).Value)
+        txtWatts.Text = CStr(vistapanel.Item(2, i).Value)
+        txtEficiencia.Text = CStr(vistapanel.Item(3, i).Value)
+        txtMarca.Text = CStr(vistapanel.Item(4, i).Value)
+        txtModelo.Text = CStr(vistapanel.Item(5, i).Value)
+        txtDimensiones.Text = CStr(vistapanel.Item(6, i).Value)
     End Sub
 
-    Private Sub opcionespanel_Load_1(sender As Object, e As EventArgs) Handles MyBase.Load
+    Private Sub IDToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles IDToolStripMenuItem.Click
+        If buscarId.Text = "" Then Exit Sub
+        Dim id As Integer
+        If Not Integer.TryParse(buscarId.Text, id) Then
+            MsgBox("El ID debe ser un numero", MsgBoxStyle.Critical, "A T E N C I O N")
+            Exit Sub
+        End If
+        buscar("SELECT * FROM paneles WHERE idPanel = @p0", id, "NO HAY REGISTROS CON DICHO ID")
+    End Sub
+
+    Private Sub TipoPanelToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TipoPanelToolStripMenuItem.Click
+        If buscarTipo.Text = "" Then Exit Sub
+        ' Mismo problema de inyeccion que en el filtro por nombre de electrodomestico.
+        buscar("SELECT * FROM paneles WHERE tipoPanel LIKE @p0", "%" & buscarTipo.Text.Trim() & "%", _
+               "NO HAY REGISTROS CON DICHO TIPO DE PANEL")
+    End Sub
+
+    Private Sub buscar(consulta As String, valor As Object, sinResultados As String)
         Try
-            conexion.ConnectionString = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=paneleSolares.mdb;Persist Security Info=False"
-            conexion.Open()
-            actualizardatagrid()
+            Dim tabla As DataTable = BaseDatos.Consultar(consulta, valor)
+            If tabla.Rows.Count = 0 Then
+                MsgBox(sinResultados, MsgBoxStyle.Critical, "A T E N C I O N")
+                limpiar()
+                actualizardatagrid()
+                Exit Sub
+            End If
+
+            vistapanel.DataSource = tabla
+            Dim fila As DataRow = tabla.Rows(0)
+            idPanel.Text = CStr(fila("idPanel"))
+            txtTipo.Text = CStr(fila("tipoPanel"))
+            txtWatts.Text = CStr(fila("watts"))
+            txtEficiencia.Text = CStr(fila("eficiencia"))
+            txtMarca.Text = CStr(fila("marca"))
+            txtModelo.Text = CStr(fila("modelo"))
+            txtDimensiones.Text = CStr(fila("dimensiones"))
         Catch ex As Exception
-            MsgBox("error, no se conecto", vbCritical, "sin conexion")
+            BaseDatos.Reportar(ex, "A T E N C I O N")
         End Try
     End Sub
+
     Private Sub limpiar()
         idPanel.Clear()
         txtTipo.Clear()
@@ -49,242 +101,134 @@ Public Class opcionespanel
     End Sub
 
     Private Sub modificar_Click(sender As Object, e As EventArgs) Handles modificar.Click
-        txtTipo.Enabled = True
-        txtWatts.Enabled = True
-        txtEficiencia.Enabled = True
-        txtMarca.Enabled = True
-        txtModelo.Enabled = True
-        txtDimensiones.Enabled = True
-        buscarId.Enabled = False
-        buscarTipo.Enabled = False
-        enviar.Enabled = True
+        If idPanel.Text = "" Then
+            MsgBox("Seleccione primero un panel de la lista")
+            Exit Sub
+        End If
+        habilitarEdicion(True)
     End Sub
+
+    Private Sub habilitarEdicion(activo As Boolean)
+        txtTipo.Enabled = activo
+        txtWatts.Enabled = activo
+        txtEficiencia.Enabled = activo
+        txtMarca.Enabled = activo
+        txtModelo.Enabled = activo
+        txtDimensiones.Enabled = activo
+        enviar.Enabled = activo
+        buscarId.Enabled = Not activo
+        buscarTipo.Enabled = Not activo
+    End Sub
+
     Private Sub enviar_Click(sender As Object, e As EventArgs) Handles enviar.Click
-        If txtTipo.Text = "" Or txtWatts.Text = "" Or txtModelo.Text = "" Or txtMarca.Text = "" Or txtEficiencia.Text = "" Or txtDimensiones.Text = "" Then
+        If txtTipo.Text = "" Or txtWatts.Text = "" Or txtModelo.Text = "" Or _
+           txtMarca.Text = "" Or txtEficiencia.Text = "" Or txtDimensiones.Text = "" Then
             MsgBox("No puede dejar campos vacios")
-        Else
-            If Val(txtEficiencia.Text) > 100 Or Val(txtEficiencia.Text) = 0 Then
-                MsgBox("no puede existir mas de 100% de eficiencia o 0%")
-            Else
-                Dim actualizar As String
-                Dim id As Integer
-                id = Val(idPanel.Text)
-                actualizar = "UPDATE paneles SET tipoPanel= '" & txtTipo.Text & "', watts = '" & CDbl(txtWatts.Text) & "', eficiencia = '" & CDbl(txtEficiencia.Text) & "', marca = '" & txtMarca.Text & "', modelo = '" & txtModelo.Text & "', dimensiones = '" & txtDimensiones.Text & "' WHERE idPanel = " & id & ""
-                comandos = New OleDbCommand(actualizar, conexion)
-                comandos.ExecuteNonQuery()
-                MsgBox("Actualizado correctamente", vbInformation, " correcto")
-                actualizardatagrid()
-                limpiar()
-                txtTipo.Enabled = False
-                txtWatts.Enabled = False
-                txtEficiencia.Enabled = False
-                txtMarca.Enabled = False
-                txtModelo.Enabled = False
-                txtDimensiones.Enabled = False
-                buscarId.Enabled = True
-                buscarTipo.Enabled = True
-                enviar.Enabled = False
-            End If
+            Exit Sub
         End If
-    End Sub
 
-    Private Sub buscarId_TextChanged(sender As Object, e As EventArgs) Handles buscarId.TextChanged
-        If buscarId.Text <> "" Then
-            buscarTipo.Enabled = False
-        Else
-            buscarTipo.Enabled = True
+        Dim id As Integer
+        Dim watts As Double
+        Dim eficiencia As Double
+        If Not Integer.TryParse(idPanel.Text, id) Then
+            MsgBox("Seleccione primero un panel de la lista")
+            Exit Sub
         End If
-    End Sub
-
-    Private Sub buscarTipo_TextChanged(sender As Object, e As EventArgs) Handles buscarTipo.TextChanged
-        If buscarTipo.Text <> "" Then
-            buscarId.Enabled = False
-        Else
-            buscarId.Enabled = True
+        If Not Entradas.LeerNumero(txtWatts.Text, watts) OrElse _
+           Not Entradas.LeerNumero(txtEficiencia.Text, eficiencia) Then
+            MsgBox("Los watts y la eficiencia deben ser numeros validos")
+            Exit Sub
         End If
-    End Sub
-
-    Private Sub IDToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles IDToolStripMenuItem.Click
-        Dim registros As DataSet
-        Dim consultar As String
-        Dim lista As Integer
-        Dim num As Integer
-        num = Val(buscarId.Text)
-        If (buscarId.Text <> "") Then
-            consultar = "SELECT * FROM paneles WHERE idPanel = " & num
-            adaptador = New OleDbDataAdapter(consultar, conexion)
-            registros = New DataSet
-            adaptador.Fill(registros, "paneles")
-            lista = registros.Tables("paneles").Rows.Count
-            If lista <> 0 Then
-                vistapanel.DataSource = registros
-                vistapanel.DataMember = "paneles"
-                idPanel.Text = registros.Tables("paneles").Rows(0).Item("idPanel")
-                txtTipo.Text = registros.Tables("paneles").Rows(0).Item("tipoPanel")
-                txtWatts.Text = registros.Tables("paneles").Rows(0).Item("watts")
-                txtEficiencia.Text = registros.Tables("paneles").Rows(0).Item("eficiencia")
-                txtMarca.Text = registros.Tables("paneles").Rows(0).Item("marca")
-                txtModelo.Text = registros.Tables("paneles").Rows(0).Item("modelo")
-                txtDimensiones.Text = registros.Tables("paneles").Rows(0).Item("dimensiones")
-            Else
-                MsgBox("NO HAY REGISTROS CON DICHO ID", vbCritical, "A T E N C I O N")
-                limpiar()
-            End If
+        If watts <= 0 Then
+            MsgBox("La potencia del panel debe ser mayor a 0 W")
+            Exit Sub
         End If
-    End Sub
-
-    Private Sub TipoPanelToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TipoPanelToolStripMenuItem.Click
-        Dim registros As DataSet
-        Dim consultar As String
-        Dim lista As Integer
-        If (buscarTipo.Text <> "") Then
-            consultar = "SELECT * FROM paneles WHERE tipoPanel LIKE '%" & buscarTipo.Text & "%'"
-            adaptador = New OleDbDataAdapter(consultar, conexion)
-            registros = New DataSet
-            adaptador.Fill(registros, "paneles")
-            lista = registros.Tables("paneles").Rows.Count
-            If lista <> 0 Then
-                vistapanel.DataSource = registros
-                vistapanel.DataMember = "paneles"
-                idPanel.Text = registros.Tables("paneles").Rows(0).Item("idPanel")
-                txtTipo.Text = registros.Tables("paneles").Rows(0).Item("tipoPanel")
-                txtWatts.Text = registros.Tables("paneles").Rows(0).Item("watts")
-                txtEficiencia.Text = registros.Tables("paneles").Rows(0).Item("eficiencia")
-                txtMarca.Text = registros.Tables("paneles").Rows(0).Item("marca")
-                txtModelo.Text = registros.Tables("paneles").Rows(0).Item("modelo")
-                txtDimensiones.Text = registros.Tables("paneles").Rows(0).Item("dimensiones")
-            Else
-                MsgBox("NO HAY REGISTROS CON DICHO TIPO DE PANEL", vbCritical, "A T E N C I O N")
-                limpiar()
-            End If
+        If eficiencia > 100 Or eficiencia <= 0 Then
+            MsgBox("no puede existir mas de 100% de eficiencia o 0%")
+            Exit Sub
         End If
-    End Sub
 
-    Private Sub VOLVERToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles VOLVERToolStripMenuItem.Click
-        inicio.Show()
-        Me.Close()
+        Try
+            BaseDatos.Ejecutar(
+                "UPDATE paneles SET tipoPanel = @p0, watts = @p1, eficiencia = @p2, " & _
+                "marca = @p3, modelo = @p4, dimensiones = @p5 WHERE idPanel = @p6", _
+                txtTipo.Text.Trim(), watts, eficiencia, _
+                txtMarca.Text.Trim(), txtModelo.Text.Trim(), txtDimensiones.Text.Trim(), id)
+            MsgBox("Actualizado correctamente", MsgBoxStyle.Information, " correcto")
+            limpiar()
+            actualizardatagrid()
+            habilitarEdicion(False)
+        Catch ex As Exception
+            BaseDatos.Reportar(ex, "atencion")
+        End Try
     End Sub
 
     Private Sub Button5_Click(sender As Object, e As EventArgs) Handles Button5.Click
-        Dim eliminar As String
-        Dim si As Byte
-        Dim num As Integer
-        If idPanel.Text <> "" Then
-            num = Val(idPanel.Text)
-            si = MsgBox("Esta seguro que desea eliminar...", vbYesNo, "¿eliminar?")
-            If si = vbYes Then
-                eliminar = "DELETE FROM paneles WHERE idPanel = " & num
-                comandos = New OleDbCommand(eliminar, conexion)
-                comandos.ExecuteNonQuery()
-                MsgBox("Eliminado correctamente", vbInformation, "Correcto")
-                limpiar()
-                actualizardatagrid()
-            Else
-                MsgBox("Cancelo la eliminacion", vbCritical, "Cancelado")
-                limpiar()
-            End If
-        Else
-            MsgBox("Tiene que seleccionar un id para poder eliminar el respectivo electrodomestico!")
-        End If
-    End Sub
-    Public Sub solonumeros(ByRef e As System.Windows.Forms.KeyPressEventArgs)
-        If Char.IsDigit(e.KeyChar) Or (e.KeyChar) = "," Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-    Private Sub txtTipo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtTipo.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtWatts_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtWatts.KeyPress
-        If Char.IsNumber(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtEficiencia_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtEficiencia.KeyPress
-        solonumeros(e)
-    End Sub
-
-    Private Sub txtDimensiones_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtDimensiones.KeyPress
-        If Char.IsDigit(e.KeyChar) Or (e.KeyChar) = "x" Or (e.KeyChar) = "," Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtMarca_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtMarca.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtEficiencia_TextChanged(sender As Object, e As EventArgs) Handles txtEficiencia.TextChanged
-        If Not IsNumeric(txtEficiencia.Text) And txtEficiencia.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtEficiencia.Clear()
+        Dim id As Integer
+        If Not Integer.TryParse(idPanel.Text, id) Then
+            MsgBox("Tiene que seleccionar un id para poder eliminar el respectivo panel!")
             Exit Sub
         End If
-    End Sub
 
-    Private Sub txtWatts_TextChanged(sender As Object, e As EventArgs) Handles txtWatts.TextChanged
-        If Not IsNumeric(txtWatts.Text) And txtWatts.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtWatts.Clear()
+        If MsgBox("Esta seguro que desea eliminar...", MsgBoxStyle.YesNo, "¿eliminar?") <> MsgBoxResult.Yes Then
+            MsgBox("Cancelo la eliminacion", MsgBoxStyle.Critical, "Cancelado")
+            limpiar()
             Exit Sub
         End If
+
+        Try
+            BaseDatos.Ejecutar("DELETE FROM paneles WHERE idPanel = @p0", id)
+            MsgBox("Eliminado correctamente", MsgBoxStyle.Information, "Correcto")
+            limpiar()
+            actualizardatagrid()
+        Catch ex As Exception
+            BaseDatos.Reportar(ex, "atencion")
+        End Try
     End Sub
 
-    Private Sub txtDimensiones_TextChanged(sender As Object, e As EventArgs) Handles txtDimensiones.TextChanged
-        If Not IsNumeric(txtDimensiones.Text) And txtDimensiones.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtDimensiones.Clear()
-            Exit Sub
-        End If
-    End Sub
-
-    Private Sub txtModelo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtModelo.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
+    Private Sub VOLVERToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles VOLVERToolStripMenuItem.Click
+        Me.Close()
     End Sub
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        limpiar()
         actualizardatagrid()
     End Sub
+
+    Private Sub buscarId_TextChanged(sender As Object, e As EventArgs) Handles buscarId.TextChanged
+        buscarTipo.Enabled = (buscarId.Text = "")
+    End Sub
+
+    Private Sub buscarTipo_TextChanged(sender As Object, e As EventArgs) Handles buscarTipo.TextChanged
+        buscarId.Enabled = (buscarTipo.Text = "")
+    End Sub
+
+    Private Sub txtTipo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtTipo.KeyPress
+        Entradas.SoloLetras(e)
+    End Sub
+
+    Private Sub txtWatts_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtWatts.KeyPress
+        Entradas.SoloNumeros(e, sender)
+    End Sub
+
+    Private Sub txtEficiencia_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtEficiencia.KeyPress
+        Entradas.SoloNumeros(e, sender)
+    End Sub
+
+    Private Sub txtMarca_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtMarca.KeyPress
+        Entradas.Alfanumerico(e)
+    End Sub
+
+    Private Sub txtModelo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtModelo.KeyPress
+        Entradas.Alfanumerico(e)
+    End Sub
+
+    Private Sub txtDimensiones_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtDimensiones.KeyPress
+        Entradas.SoloDimensiones(e)
+    End Sub
+
+    Private Sub AlCerrarse(ByVal sender As Object, ByVal e As FormClosedEventArgs) Handles MyBase.FormClosed
+        inicio.Actual.RegistrarCierre()
+    End Sub
+
 End Class

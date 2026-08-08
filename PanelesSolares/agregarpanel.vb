@@ -1,149 +1,134 @@
-﻿Imports System.Data.OleDb
-Imports System.Data
+﻿Imports System.Data
+
 Public Class agregarpanel
-    Dim conexion As New OleDbConnection
-    Dim comandos As New OleDbCommand
+
+    ' vbnc (Mono) no implementa las instancias por defecto de formularios que
+    ' ofrece Visual Basic ("otroForm.Show()" sin instanciar). Esta propiedad hace
+    ' explicito lo mismo: una unica instancia viva por pantalla, recreada si fue
+    ' cerrada. Compila igual en Visual Studio y deja la dependencia a la vista.
+    Private Shared instancia As agregarpanel
+
+    Public Shared ReadOnly Property Actual() As agregarpanel
+        Get
+            If instancia Is Nothing OrElse instancia.IsDisposed Then
+                instancia = New agregarpanel()
+            End If
+            Return instancia
+        End Get
+    End Property
+
+
     Private Sub agregarpanel_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        inicio.Actual.RegistrarApertura()
+
+        ' La grilla es un selector de catalogo, no un editor: sin esto el usuario
+        ' puede escribir sobre las celdas y perder lo tipeado sin ningun aviso,
+        ' porque esos cambios se quedan en el DataTable y nunca llegan a la base.
+        dgvelectro.ReadOnly = True
+        dgvelectro.AllowUserToAddRows = False
+        actualizardatagrid()
+    End Sub
+
+    Private Sub actualizardatagrid()
         Try
-            conexion.ConnectionString = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=paneleSolares.mdb;Persist Security Info=False"
-            conexion.Open()
-            actualizardatagrid()
+            dgvelectro.DataSource = BaseDatos.Consultar("SELECT * FROM paneles")
         Catch ex As Exception
-            MsgBox("error, no se conecto", vbCritical, "sin conexion")
+            BaseDatos.Reportar(ex, "sin conexion")
         End Try
     End Sub
 
     Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
-        If txtTipo.Text = "" Or txtWatts.Text = "" Or txtModelo.Text = "" Or txtMarca.Text = "" Or txtEficiencia.Text = "" Or txtDimensiones.Text = "" Then
+        If txtTipo.Text = "" Or txtWatts.Text = "" Or txtModelo.Text = "" Or _
+           txtMarca.Text = "" Or txtEficiencia.Text = "" Or txtDimensiones.Text = "" Then
             MsgBox("No puede dejar campos vacios")
-        Else
-            If Val(txtEficiencia.Text) > 100 Or Val(txtEficiencia.Text) = 0 Then
-                MsgBox("no puede existir mas de 100% de eficiencia o 0%")
-            Else
-                Try
-                    comandos = New OleDbCommand("INSERT INTO paneles(tipoPanel,watts,eficiencia,marca,modelo,dimensiones)" & Chr(13) & "VALUES (txtTipo, CDbl(txtWatts), CDbl(txtEficiencia), txtMarca, txtModelo, txtDimensiones)", conexion)
-                    comandos.Parameters.AddWithValue("@tipoPanel", txtTipo.Text)
-                    comandos.Parameters.AddWithValue("@watts", CDbl(txtWatts.Text))
-                    comandos.Parameters.AddWithValue("@eficiencia", CDbl(txtEficiencia.Text))
-                    comandos.Parameters.AddWithValue("@marca", txtMarca.Text)
-                    comandos.Parameters.AddWithValue("@modelo", txtModelo.Text)
-                    comandos.Parameters.AddWithValue("@dimensiones", txtDimensiones.Text)
-                    comandos.ExecuteNonQuery()
-                    MsgBox("guardado", vbInformation, "correctamente")
-                    actualizardatagrid()
-                Catch ex As Exception
-                    MsgBox("error", vbCritical, "atencion")
-                End Try
-            End If
+            Exit Sub
         End If
+
+        Dim watts As Double
+        Dim eficiencia As Double
+        If Not Entradas.LeerNumero(txtWatts.Text, watts) Then
+            MsgBox("Los watts no son un numero valido")
+            txtWatts.Focus()
+            Exit Sub
+        End If
+        If Not Entradas.LeerNumero(txtEficiencia.Text, eficiencia) Then
+            MsgBox("La eficiencia no es un numero valido")
+            txtEficiencia.Focus()
+            Exit Sub
+        End If
+
+        If watts <= 0 Then
+            MsgBox("La potencia del panel debe ser mayor a 0 W")
+            txtWatts.Focus()
+            Exit Sub
+        End If
+        If eficiencia > 100 Or eficiencia <= 0 Then
+            MsgBox("no puede existir mas de 100% de eficiencia o 0%")
+            txtEficiencia.Focus()
+            Exit Sub
+        End If
+
+        Try
+            ' Igual que en el alta de electrodomesticos, el INSERT original
+            ' incrustaba los nombres de los controles en el SQL y nunca grababa.
+            BaseDatos.Ejecutar(
+                "INSERT INTO paneles (tipoPanel, watts, eficiencia, marca, modelo, dimensiones) " & _
+                "VALUES (@p0, @p1, @p2, @p3, @p4, @p5)", _
+                txtTipo.Text.Trim(), watts, eficiencia, _
+                txtMarca.Text.Trim(), txtModelo.Text.Trim(), txtDimensiones.Text.Trim())
+            MsgBox("guardado", MsgBoxStyle.Information, "correctamente")
+            limpiar()
+            actualizardatagrid()
+        Catch ex As Exception
+            BaseDatos.Reportar(ex, "atencion")
+        End Try
     End Sub
-    Private Sub actualizardatagrid()
-        Dim adaptador As New OleDbDataAdapter
-        Dim registro As New DataSet
-        Dim consulta As String
-        consulta = "SELECT * FROM paneles"
-        adaptador = New OleDbDataAdapter(consulta, conexion)
-        registro.Tables.Add("paneles")
-        adaptador.Fill(registro.Tables("paneles"))
-        dgvelectro.DataSource = registro.Tables("paneles")
+
+    Private Sub limpiar()
+        txtTipo.Clear()
+        txtWatts.Clear()
+        txtEficiencia.Clear()
+        txtMarca.Clear()
+        txtModelo.Clear()
+        txtDimensiones.Clear()
+        txtTipo.Focus()
     End Sub
+
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
-        opcionespanel.Show()
-        Me.Hide()
-    End Sub
-
-    Private Sub txtTipo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtTipo.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-    Public Sub solonumeros(ByRef e As System.Windows.Forms.KeyPressEventArgs)
-        If Char.IsDigit(e.KeyChar) Or (e.KeyChar) = "," Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-    Private Sub txtWatts_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtWatts.KeyPress
-        solonumeros(e)
-    End Sub
-
-    Private Sub txtEficiencia_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtEficiencia.KeyPress
-        solonumeros(e)
-    End Sub
-
-    Private Sub txtMarca_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtMarca.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtModelo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtModelo.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtDimensiones_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtDimensiones.KeyPress
-        If Char.IsDigit(e.KeyChar) Or (e.KeyChar) = "x" Or (e.KeyChar) = "," Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsSeparator(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtEficiencia_TextChanged(sender As Object, e As EventArgs) Handles txtEficiencia.TextChanged
-        If Not IsNumeric(txtEficiencia.Text) And txtEficiencia.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtEficiencia.Clear()
-            Exit Sub
-        End If
-    End Sub
-
-    Private Sub txtWatts_TextChanged(sender As Object, e As EventArgs) Handles txtWatts.TextChanged
-        If Not IsNumeric(txtWatts.Text) And txtWatts.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtWatts.Clear()
-            Exit Sub
-        End If
-    End Sub
-
-    Private Sub txtDimensiones_TextChanged(sender As Object, e As EventArgs) Handles txtDimensiones.TextChanged
-        If Not IsNumeric(txtDimensiones.Text) And txtDimensiones.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtDimensiones.Clear()
-            Exit Sub
-        End If
+        opcionespanel.Actual.Show()
+        Me.Close()
     End Sub
 
     Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
-        inicio.Show()
         Me.Close()
     End Sub
+
+    Private Sub txtTipo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtTipo.KeyPress
+        Entradas.SoloLetras(e)
+    End Sub
+
+    Private Sub txtWatts_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtWatts.KeyPress
+        Entradas.SoloNumeros(e, sender)
+    End Sub
+
+    Private Sub txtEficiencia_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtEficiencia.KeyPress
+        Entradas.SoloNumeros(e, sender)
+    End Sub
+
+    Private Sub txtMarca_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtMarca.KeyPress
+        Entradas.Alfanumerico(e)
+    End Sub
+
+    Private Sub txtModelo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtModelo.KeyPress
+        Entradas.Alfanumerico(e)
+    End Sub
+
+    Private Sub txtDimensiones_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtDimensiones.KeyPress
+        Entradas.SoloDimensiones(e)
+    End Sub
+
+    Private Sub AlCerrarse(ByVal sender As Object, ByVal e As FormClosedEventArgs) Handles MyBase.FormClosed
+        inicio.Actual.RegistrarCierre()
+    End Sub
+
 End Class

@@ -47,6 +47,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
     <Reference Include="System.Drawing" />
@@ -70,6 +71,8 @@
     <Import Include="System.Threading.Tasks" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BaseDatos.vb" />
+    <Compile Include="Entradas.vb" />
     <Compile Include="agregarpanel.Designer.vb">
       <DependentUpon>agregarpanel.vb</DependentUpon>
     </Compile>

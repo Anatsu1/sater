@@ -1,109 +1,121 @@
-﻿Imports System.Data.OleDb
-Imports System.Data
+﻿Imports System.Data
+
 Public Class agregarelectro
-    Dim conexion As New OleDbConnection
-    Dim comandos As New OleDbCommand
+
+    ' vbnc (Mono) no implementa las instancias por defecto de formularios que
+    ' ofrece Visual Basic ("otroForm.Show()" sin instanciar). Esta propiedad hace
+    ' explicito lo mismo: una unica instancia viva por pantalla, recreada si fue
+    ' cerrada. Compila igual en Visual Studio y deja la dependencia a la vista.
+    Private Shared instancia As agregarelectro
+
+    Public Shared ReadOnly Property Actual() As agregarelectro
+        Get
+            If instancia Is Nothing OrElse instancia.IsDisposed Then
+                instancia = New agregarelectro()
+            End If
+            Return instancia
+        End Get
+    End Property
+
+
     Private Sub Form2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        inicio.Actual.RegistrarApertura()
+
+        ' La grilla es un selector de catalogo, no un editor: sin esto el usuario
+        ' puede escribir sobre las celdas y perder lo tipeado sin ningun aviso,
+        ' porque esos cambios se quedan en el DataTable y nunca llegan a la base.
+        dgvelectro.ReadOnly = True
+        dgvelectro.AllowUserToAddRows = False
+        actualizardatagrid()
+    End Sub
+
+    Private Sub actualizardatagrid()
         Try
-            conexion.ConnectionString = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=paneleSolares.mdb;Persist Security Info=False"
-            conexion.Open()
-            actualizardatagrid()
-
-
+            dgvelectro.DataSource = BaseDatos.Consultar("SELECT * FROM electro")
         Catch ex As Exception
-            MsgBox("error, no se conecto", vbCritical, "sin conexion")
+            BaseDatos.Reportar(ex, "sin conexion")
         End Try
     End Sub
 
     Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
         If txtnombre.Text = "" Or txtconsumohs.Text = "" Or txtconsumok.Text = "" Then
             MsgBox("No puede dejar campos vacios")
-        Else
-            If Val(txtconsumohs.Text) > 24 Or Val(txtconsumohs.Text) = 0 Then
-                MsgBox("No puede ingresar mas de 24 horas ni ingresar 0 horas")
-                txtconsumohs.Focus()
-            Else
-                Try
-                    comandos = New OleDbCommand("INSERT INTO electro(nombre,hsConsumo,conKwh)" & Chr(13) & "VALUES (txtnombre, Cdbl(txtconsumohs), Cdbl(txtconsumok))", conexion)
-                    comandos.Parameters.AddWithValue("@nombre", txtnombre.Text)
-                    comandos.Parameters.AddWithValue("@hsConsumo", CDbl(txtconsumohs.Text))
-                    comandos.Parameters.AddWithValue("@conKwh", CDbl(txtconsumok.Text))
-                    comandos.ExecuteNonQuery()
-                    MsgBox("guardado", vbInformation, "correctamente")
-                    actualizardatagrid()
-                Catch ex As Exception
-                    MsgBox("error", vbCritical, "atencion")
-                End Try
-            End If
+            Exit Sub
         End If
+
+        Dim horas As Double
+        Dim kwh As Double
+        If Not Entradas.LeerNumero(txtconsumohs.Text, horas) Then
+            MsgBox("Las horas de consumo no son un numero valido")
+            txtconsumohs.Focus()
+            Exit Sub
+        End If
+        If Not Entradas.LeerNumero(txtconsumok.Text, kwh) Then
+            MsgBox("El consumo en kWh no es un numero valido")
+            txtconsumok.Focus()
+            Exit Sub
+        End If
+
+        If horas > 24 Or horas <= 0 Then
+            MsgBox("No puede ingresar mas de 24 horas ni ingresar 0 horas")
+            txtconsumohs.Focus()
+            Exit Sub
+        End If
+        If kwh <= 0 Then
+            MsgBox("El consumo en kWh debe ser mayor a 0")
+            txtconsumok.Focus()
+            Exit Sub
+        End If
+
+        Try
+            ' El INSERT original incrustaba los nombres de los TextBox dentro del
+            ' SQL ("VALUES (txtnombre, Cdbl(txtconsumohs), ...)"), por lo que el
+            ' alta fallaba siempre. Ahora van como parametros reales.
+            BaseDatos.Ejecutar(
+                "INSERT INTO electro (nombre, hsConsumo, conKwh) VALUES (@p0, @p1, @p2)", _
+                txtnombre.Text.Trim(), horas, kwh)
+            MsgBox("guardado", MsgBoxStyle.Information, "correctamente")
+            limpiar()
+            actualizardatagrid()
+        Catch ex As Exception
+            BaseDatos.Reportar(ex, "atencion")
+        End Try
     End Sub
-    Private Sub actualizardatagrid()
-        Dim adaptador As New OleDbDataAdapter
-        Dim registro As New DataSet
-        Dim consulta As String
-        consulta = "SELECT * FROM electro"
-        adaptador = New OleDbDataAdapter(consulta, conexion)
-        registro.Tables.Add("electro")
-        adaptador.Fill(registro.Tables("electro"))
-        dgvelectro.DataSource = registro.Tables("electro")
+
+    Private Sub limpiar()
+        txtnombre.Clear()
+        txtconsumohs.Clear()
+        txtconsumok.Clear()
+        txtnombre.Focus()
     End Sub
+
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
-        opcioneselectro.Show()
-        Me.Hide()
-    End Sub
-
-    Private Sub txtnombre_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtnombre.KeyPress
-        If Char.IsLetter(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtconsumohs_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtconsumohs.KeyPress
-        If Char.IsNumber(e.KeyChar) Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-    Public Sub solonumeros(ByRef e As System.Windows.Forms.KeyPressEventArgs)
-        If Char.IsDigit(e.KeyChar) Or (e.KeyChar) = "," Then
-            e.Handled = False
-        ElseIf Char.IsControl(e.KeyChar) Then
-            e.Handled = False
-        Else
-            e.Handled = True
-        End If
-    End Sub
-
-    Private Sub txtconsumok_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtconsumok.KeyPress
-        If Char.IsNumber(e.KeyChar) Then
-            e.Handled = False
-        End If
-        solonumeros(e)
-    End Sub
-
-    Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
-        inicio.Show()
+        opcioneselectro.Actual.Show()
         Me.Close()
     End Sub
 
-    Private Sub txtconsumok_TextChanged(sender As Object, e As EventArgs) Handles txtconsumok.TextChanged
-        If Not IsNumeric(txtconsumok.Text) And txtconsumok.Text.Contains(",") Then
-            MsgBox("ERROR, valor invalido.")
-            txtconsumok.Clear()
-            Exit Sub
-        End If
+    Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
+        Me.Close()
+    End Sub
+
+    Private Sub txtnombre_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtnombre.KeyPress
+        Entradas.SoloLetras(e)
+    End Sub
+
+    Private Sub txtconsumohs_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtconsumohs.KeyPress
+        Entradas.SoloNumeros(e, sender)
+    End Sub
+
+    Private Sub txtconsumok_KeyPress(sender As Object, e As KeyPressEventArgs) Handles txtconsumok.KeyPress
+        Entradas.SoloNumeros(e, sender)
     End Sub
 
     Private Sub Label2_Click(sender As Object, e As EventArgs) Handles Label2.Click
 
     End Sub
+
+    Private Sub AlCerrarse(ByVal sender As Object, ByVal e As FormClosedEventArgs) Handles MyBase.FormClosed
+        inicio.Actual.RegistrarCierre()
+    End Sub
+
 End Class
-'deja guarda cuando no escribiste nada
-'dejar ingresar la , en los textbox
